@@ -1,30 +1,3 @@
-// use std::io::{self, Read};
-//
-// pub mod game;
-//
-// fn main() {
-//     let mut game = game::Game::new();
-//
-//     game.set_board(game::DEBUG_BOARD);
-//     game.print_board();
-//
-//     loop {
-//         let mut buff = String::new();
-//         _ = io::stdin().read_line(&mut buff);
-//
-//         match buff.trim() {
-//             "a" => game.left(),
-//             "d" => game.right(),
-//             "s" => game.down(),
-//             "w" => game.up(),
-//             "r" => game.rotate_clockwise(),
-//             _ => panic!("nuh uh"),
-//         }
-//
-//         game.print_board();
-//     }
-// }
-
 use std::io;
 
 use crossterm::event::KeyModifiers;
@@ -35,23 +8,80 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
+pub mod bot;
 pub mod game;
+
+#[derive(Debug)]
+enum Mode {
+    Normal,
+    Endless,
+    Bot,
+}
+
+fn parse_args() -> (Mode, i32, u64) {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() == 1 {
+        return (Mode::Normal, 0, 0);
+    }
+
+    let mut depth = 2;
+    let mut delay = 20;
+    let mut mode = Mode::Endless;
+    for arg in args.iter().skip(1) {
+        if *arg.to_ascii_lowercase() == "bot".to_owned() {
+            mode = Mode::Bot;
+        } else {
+            let a: Vec<&str> = arg.split("=").collect();
+
+            if a.len() == 1 {
+                panic!("expected arguement form [variable]=[value].");
+            }
+
+            if a[0] == "depth" {
+                depth = a[1]
+                    .parse::<i32>()
+                    .expect("expected integer on rhs of arguement");
+            } else if a[0] == "delay" {
+                delay = a[1]
+                    .parse::<u64>()
+                    .expect("expected integer on rhs of arguement");
+            } else {
+                panic!("unexpected arguement");
+            }
+        }
+    }
+
+    (mode, depth, delay)
+}
 
 fn main() -> io::Result<()> {
     io::stdout().execute(Hide)?;
-    enable_raw_mode()?;
-    if let Err(e) = game_loop() {
-        println!("Error: {e:?}\r");
+
+    let (mode, depth, delay) = parse_args();
+    match mode {
+        Mode::Normal => {
+            enable_raw_mode()?;
+
+            if let Err(e) = game_loop() {
+                println!("Error: {e:?}\r");
+            }
+
+            disable_raw_mode()?;
+        }
+        Mode::Bot => {
+            bot::Bot::new().play(depth, delay);
+        }
+        Mode::Endless => {
+            unimplemented!("to be added!");
+        }
     }
-    disable_raw_mode()?;
     Ok(())
 }
 
 fn game_loop() -> io::Result<()> {
     let mut game = game::Game::new();
-    game.spawn_block();
-    game.spawn_block();
-    // game.set_board(game::LOSS_BOARD);
+    // game.set_board(game::WIN_BOARD);
     game.print_board();
 
     while let Ok(event) = read() {
@@ -59,35 +89,19 @@ fn game_loop() -> io::Result<()> {
             continue;
         };
 
-        let moved = match event.code {
-            KeyCode::Char('w') | KeyCode::Up | KeyCode::Char('k') => {
-                game.move_tiles(game.board, 'w', true)
-            }
-            KeyCode::Char('s') | KeyCode::Down | KeyCode::Char('j') => {
-                game.move_tiles(game.board, 's', true)
-            }
-            KeyCode::Char('a') | KeyCode::Left | KeyCode::Char('h') => {
-                game.move_tiles(game.board, 'a', true)
-            }
+        let direction: Option<game::Direction> = match event.code {
+            KeyCode::Char('w') | KeyCode::Up | KeyCode::Char('k') => Some(game::Direction::Up),
+            KeyCode::Char('s') | KeyCode::Down | KeyCode::Char('j') => Some(game::Direction::Down),
+            KeyCode::Char('a') | KeyCode::Left | KeyCode::Char('h') => Some(game::Direction::Left),
             KeyCode::Char('d') | KeyCode::Right | KeyCode::Char('l') => {
-                game.move_tiles(game.board, 'd', true)
+                Some(game::Direction::Right)
             }
-            _ => false,
+            _ => None,
         };
 
-        if moved {
-            game.spawn_block();
-            game.print_board();
-            match game.get_state() {
-                game::State::Win => {
-                    game.win();
-                    break;
-                }
-                game::State::Loss => {
-                    game.loss();
-                    break;
-                }
-                game::State::MidGame => {}
+        if let Some(d) = direction {
+            if !game.tick(d) {
+                break;
             }
         }
 
@@ -99,9 +113,3 @@ fn game_loop() -> io::Result<()> {
     }
     Ok(())
 }
-
-// fn main() {
-//     let game = game::Game::new();
-//
-//     game.print_board(board);
-// }

@@ -27,10 +27,19 @@ pub static LOSS_BOARD: [[i32; 4]; 4] = [
 
 pub static DEBUG_BOARD: [[i32; 4]; 4] = [[0, 2, 2, 4], [2, 2, 2, 2], [0, 0, 0, 0], [0, 0, 0, 0]];
 
+#[derive(PartialEq)]
 pub enum State {
     Win,
     Loss,
     MidGame,
+}
+
+#[derive(Clone, Debug)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 pub struct Game {
@@ -50,6 +59,13 @@ struct Colors {
 
 impl Game {
     pub fn new() -> Self {
+        let mut game = Game::init();
+        game.spawn_block();
+        game.spawn_block();
+        return game;
+    }
+
+    fn init() -> Self {
         let mut backgrounds: HashMap<i32, String> = HashMap::new();
         backgrounds.insert(-1, "\x1B[48;2;194;180;169m".to_owned()); // background
         backgrounds.insert(0, "\x1B[48;2;208;193;185m".to_owned()); // empty cell
@@ -71,7 +87,7 @@ impl Game {
             black_fg: "\x1B[38;2;0;0;0m".to_owned(),
         };
 
-        Game {
+        Self {
             corner_padding: 4,
             colors,
             board: EMPTY_BOARD,
@@ -217,9 +233,16 @@ impl Game {
     }
 
     fn valid_state(&mut self, state: [[i32; 4]; 4]) -> bool {
-        let moves: [char; 4] = ['w', 'a', 's', 'd'];
+        let moves: [Direction; 4] = [
+            Direction::Up,
+            Direction::Left,
+            Direction::Down,
+            Direction::Right,
+        ];
         for m in moves {
-            if self.move_tiles(state, m, false) {
+            let (moved, _) = self.move_tiles(state, m, false);
+
+            if moved {
                 return true;
             }
         }
@@ -251,39 +274,43 @@ impl Game {
         return out;
     }
 
+    pub fn make_move(&mut self, direction: Direction) -> bool {
+        let (moved, _) = self.move_tiles(self.board, direction, true);
+        return moved;
+    }
+
     pub fn move_tiles(
         &mut self,
         state: [[i32; 4]; 4],
-        direction: char,
+        direction: Direction,
         change_state: bool,
-    ) -> bool {
+    ) -> (bool, [[i32; 4]; 4]) {
         let mut buffer = state;
         let score;
         let moved;
         match direction {
-            'w' => {
+            Direction::Up => {
                 buffer = self.rotate_clockwise(buffer);
                 buffer = self.rotate_clockwise(buffer);
                 buffer = self.rotate_clockwise(buffer);
                 (buffer, score, moved) = self.left(buffer);
                 buffer = self.rotate_clockwise(buffer);
             }
-            'a' => (buffer, score, moved) = self.left(buffer),
-            's' => {
+            Direction::Left => (buffer, score, moved) = self.left(buffer),
+            Direction::Down => {
                 buffer = self.rotate_clockwise(buffer);
                 (buffer, score, moved) = self.left(buffer);
                 buffer = self.rotate_clockwise(buffer);
                 buffer = self.rotate_clockwise(buffer);
                 buffer = self.rotate_clockwise(buffer);
             }
-            'd' => {
+            Direction::Right => {
                 buffer = self.rotate_clockwise(buffer);
                 buffer = self.rotate_clockwise(buffer);
                 (buffer, score, moved) = self.left(buffer);
                 buffer = self.rotate_clockwise(buffer);
                 buffer = self.rotate_clockwise(buffer);
             }
-            _ => panic!("invalid direction"),
         };
 
         if change_state {
@@ -292,7 +319,7 @@ impl Game {
             self.board = buffer;
         }
 
-        return moved;
+        return (moved, buffer);
     }
 
     pub fn left(&mut self, state: [[i32; 4]; 4]) -> ([[i32; 4]; 4], i32, bool) {
@@ -361,6 +388,26 @@ impl Game {
         }
 
         return State::MidGame;
+    }
+
+    pub fn tick(&mut self, direction: Direction) -> bool {
+        if self.make_move(direction) {
+            self.spawn_block();
+            self.print_board();
+            match self.get_state() {
+                State::Win => {
+                    self.win();
+                    return false;
+                }
+                State::Loss => {
+                    self.loss();
+                    return false;
+                }
+                State::MidGame => return true,
+            }
+        }
+
+        return true;
     }
 
     pub fn win(&self) {
